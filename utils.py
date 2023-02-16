@@ -2,19 +2,34 @@ import numpy as np
 from jwst import datamodels
 
 def get_mad_sigma(x):
-    # Returns the Median Absolute Deviation (MAD)-based standard deviation.
-    # More info: https://en.wikipedia.org/wiki/Median_absolute_deviation
+    """
+    Returns the Median Absolute Deviation (MAD)-based standard deviation.
+    More info: https://en.wikipedia.org/wiki/Median_absolute_deviation.
 
+    Parameters
+    ----------
+    x : np.array
+        Array to calculate the MAD-based standard deviation.
+
+    Returns
+    -------
+    float
+        MAD-based standard deviation (MAD times 1.4826)
+
+    """
     mad = np.nanmedian( np.abs( x - np.nanmedian( x ) ) )
 
     return 1.4826 * mad
 
-def correct_dark(darks, dq = None, nsigma = 10):
+def correct_darks(darks, dq = None, nsigma = 10):
     """
     Given a dark exposure (darks) from a given amplifier, this script (a) calculates the median for each group 
     of each integration and removes that, (b) calculates the median of *all* groups in an integration 
-    and removes that (i.e., the integration-level bias) and returns the corrected product. This function also 
-    sets to zero all outlier pixels.
+    and removes that (i.e., the integration-level bias) and returns the corrected product. If a data quality `dq` 
+    array is given, this is used to not include outliers/bad pixels in the calculations. If it's not given, the 
+    function estimates those after a first pass from (a) and (b) above, and then repeats that process.
+
+    This function also sets to zero all outlier pixels (so users can replace them later with whatever they want).
 
 
     Parameters
@@ -31,7 +46,7 @@ def correct_dark(darks, dq = None, nsigma = 10):
     Returns
     -------
     np.array
-        Array containing the median-and-bias corrected integrations per group.
+        Array containing the median-and-bias corrected integrations per group; zero values are outliers/bad pixels.
 
     """
 
@@ -58,10 +73,14 @@ def correct_dark(darks, dq = None, nsigma = 10):
         # Remove it:
         corrected_darks[i, :, :, :] -= bias
 
-        # Replace nans with group-medians:
+        # Replace nans and outlier/bad pixels (if dq is given) with zeroes:
         for j in range(groups):
 
-            corrected_darks[i, j, :, :][np.isnan(corrected_darks[i, j, :, :])] = np.nanmedian(corrected_darks[i, j, :, :])
+            corrected_darks[i, j, :, :][np.isnan(corrected_darks[i, j, :, :])] = 0.
+
+            if dq is not None:
+
+                 corrected_darks[i, j, :, :][np.isnan(nanarray)] = 0.
 
     if dq is None:
 

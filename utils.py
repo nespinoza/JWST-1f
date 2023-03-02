@@ -25,7 +25,8 @@ def correct_darks(darks, dq = None, nsigma = 10):
     """
     Given a dark exposure (darks) from a given amplifier, this script (a) calculates the median for each group 
     of each integration and removes that, (b) calculates the median of *all* groups in an integration 
-    and removes that (i.e., the integration-level bias) and returns the corrected product. If a data quality `dq` 
+    and removes that (i.e., the integration-level bias) and returns the corrected product, (c) removes again the median 
+    to consider any small remaining offsets between the bias in b) and the initial median in a). If a data quality `dq` 
     array is given, this is used to not include outliers/bad pixels in the calculations. If it's not given, the 
     function estimates those after a first pass from (a) and (b) above, and then repeats that process.
 
@@ -73,14 +74,16 @@ def correct_darks(darks, dq = None, nsigma = 10):
         # Remove it:
         corrected_darks[i, :, :, :] -= bias
 
-        # Replace nans and outlier/bad pixels (if dq is given) with zeroes:
-        for j in range(groups):
+        # Replace nans and outlier/bad pixels (if dq is given) with zeroes; compute median and substract again:
+        if dq is not None:
 
-            corrected_darks[i, j, :, :][np.isnan(corrected_darks[i, j, :, :])] = 0.
+            for j in range(groups):
 
-            if dq is not None:
+                corrected_darks[i, j, :, :][np.isnan(corrected_darks[i, j, :, :])] = 0.
+                corrected_darks[i, j, :, :][np.isnan(nanarray[i, j, :, :])] = 0.
 
-                 corrected_darks[i, j, :, :][np.isnan(nanarray)] = 0.
+                # Recompute median:
+                corrected_darks[i, j, :, :] = corrected_darks[i, j, :, :] - np.nanmedian( corrected_darks[i, j, :, :] * nanarray[i, j, :, :] )
 
     if dq is None:
 
@@ -97,6 +100,6 @@ def correct_darks(darks, dq = None, nsigma = 10):
 
                 dq[i, j, :, :][idx_bad] = 0
        
-        return correct_dark(darks, dq = dq, nsigma = nsigma)
+        return correct_darks(darks, dq = dq, nsigma = nsigma)
  
     return corrected_darks

@@ -79,11 +79,12 @@ def correct_darks(darks, dq = None, nsigma = 10):
 
             for j in range(groups):
 
-                corrected_darks[i, j, :, :][np.isnan(corrected_darks[i, j, :, :])] = 0.
-                corrected_darks[i, j, :, :][np.isnan(nanarray[i, j, :, :])] = 0.
-
                 # Recompute median:
                 corrected_darks[i, j, :, :] = corrected_darks[i, j, :, :] - np.nanmedian( corrected_darks[i, j, :, :] * nanarray[i, j, :, :] )
+
+                # Zero the nans/outliers:
+                corrected_darks[i, j, :, :][np.isnan(corrected_darks[i, j, :, :])] = 0.
+                corrected_darks[i, j, :, :][np.isnan(nanarray[i, j, :, :])] = 0.
 
     if dq is None:
 

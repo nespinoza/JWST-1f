@@ -21,7 +21,7 @@ def get_mad_sigma(x):
 
     return 1.4826 * mad
 
-def correct_darks(darks, dq = None, nsigma = 10):
+def correct_darks(darks, dq = None, nsigma = 10, amplifier_location = None):
     """
     Given a dark exposure (darks) from a given amplifier, this script (a) calculates the median for each group 
     of each integration and removes that, (b) calculates the median of *all* groups in an integration 
@@ -29,6 +29,8 @@ def correct_darks(darks, dq = None, nsigma = 10):
     to consider any small remaining offsets between the bias in b) and the initial median in a). If a data quality `dq` 
     array is given, this is used to not include outliers/bad pixels in the calculations. If it's not given, the 
     function estimates those after a first pass from (a) and (b) above, and then repeats that process.
+
+    If `amplifier_location` is given, this process above is done separately for each amplifier.
 
     This function also sets to zero all outlier pixels (so users can replace them later with whatever they want).
 
@@ -42,7 +44,9 @@ def correct_darks(darks, dq = None, nsigma = 10):
         Bad pixels should have any other value.
     nsigma : int
         N-sigma rejection for automatically identifying outliers. This is used if `dq` is not given.
-
+    amplifier_locartion : list
+        Location of amplifiers in case of more-than-one amplifier case (e.g., NIRCam or full-frame data in general). This should be a list, 
+        locating the (pythonic) start and end column of the amplifiers (amplifiers are assumed to go along columns).
 
     Returns
     -------
@@ -50,6 +54,18 @@ def correct_darks(darks, dq = None, nsigma = 10):
         Array containing the median-and-bias corrected integrations per group; zero values are outliers/bad pixels.
 
     """
+
+    if amplifier_location is not None:
+
+        corrected_darks = np.zeros(darks.shape)
+
+        for i in range( len(amplifier_location) ):
+
+            a_start, a_end = amplifier_location[i]
+
+            corrected_darks[:, :, :, a_start:a_end] = correct_darks(darks[:, :, :, a_start:a_end])
+
+        return corrected_darks
 
     # If user gives a DQ array, create a new one that sets all non-ones to nan:
     nanarray = np.ones(darks.shape)

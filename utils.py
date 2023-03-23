@@ -1,4 +1,9 @@
 import numpy as np
+
+from astropy.timeseries import LombScargle
+
+from stochastic.processes.noise import ColoredNoise
+
 from jwst import datamodels
 
 def get_mad_sigma(x):
@@ -120,3 +125,186 @@ def correct_darks(darks, dq = None, nsigma = 10, amplifier_location = None):
         return correct_darks(darks, dq = dq, nsigma = nsigma)
  
     return corrected_darks
+
+def get_dark_psds(darks, row_start = 255, column_start = 2047, pixel_time = 10, jump_time = 120, nfrequencies = 65536):
+    """
+    Given a set of dark integrations and a set of starting points from which the readout starts, this script calculates the power spectral density for 
+    a pre-defined grid of frequencies, for each integration. This ommits by default any zero-valued count.
+
+    This script assumes readout happens in the columns. So first pixel to be read is (row_start, column_start), next one depends on the row_start:
+
+    - If row_start = 0, then next pixel to be read is (row_start + 1, column_start).
+    - If row_start = 255, then next pixel to be read is (row_start - 1, column_start).
+
+    Similarly, if column_start = 0, then once the jump occurs on a given column the next column is column_start + 1. If column_start = 2047, next one is 
+    column_start - 1.
+
+    Parameters
+    ----------
+    darks : np.array
+        Array containing the darks in a numpy array. Dimensions should be [integration, groups, rows, columns]. It is expected each group is zero-mean.
+
+    row_start : float
+        Optional value indicating the (pythonic) index of row at which readout begins.
+
+    column_start : float
+        Optional value indicating the column at which readout begins.
+
+    pixel_time : float
+        Time it takes to read a pixel along each column in microseconds. Default is 10 microseconds (i.e., like JWST NIR detectors).
+
+    jump_time : float
+        Time it takes to jump from one column to the next once all its pixels have been read, in microseconds. Default is 120 microseconds (i.e., like JWST NIR detectors).
+
+    nfrequencies : int
+        Number of frequencies to compute (default optimizes speed for Lomb Scargle).
+
+    Returns
+    -------
+    frequencies : np.array
+        Frequency array at which the PSDs are estimated.
+
+    psds : np.array
+        Array of length [integration, group, len(frequency)] containing the PSDs of each integration and group.
+
+    median_psd : np.array
+        Array of length len(frequency) having the median of all the PSDs from every integration and group.
+
+    """
+
+    nintegrations, ngroups, nrows, ncolumns = darks.shape
+
+    # First, generate time-stamps --- these start from zero:
+    times, _ = generate_detector_ts(1., 1., 1., columns = ncolumns, rows = nrows, return_time = True) 
+
+    # Get frequencies --- these are the ones used in Everett's paper, which we'll use here too. These are in Hz, and are set in linspace as that 
+    # optimizes speed of Lomb Scargle periodogram calculations:
+    frequencies = np.linspace(1./5., 1./2e-5, nfrequencies) 
+
+    # Set array that will save all PSDs:
+    psds = np.zeros([nintegrations, ngroups, nfrequencies])
+
+    # Now, read the pixels, one by one for each integration and group. Get PSDs, store them:
+    for i in range(nintegrations):
+
+        for j in range(ngroups):
+
+            # Extract counts for this integration/group following counting scheme above:
+            counts = np.zeros( len(times) )
+
+            if row_start == 0:
+
+                d_row = 1
+                first_row = 0
+                last_row = nrows
+    
+            else:
+
+                d_row = -1
+                first_row = nrows - 1
+                last_row = -1
+
+            if column_start == 0:
+
+                d_column = 1
+                first_column = 0
+                last_column = ncolumns
+
+            else:
+
+                d_column = -1
+                first_column = ncolumns - 1
+                last_column = -1
+
+            counter = 0
+            for l in range(first_column, last_column, d_column):
+            
+                for k in range(first_row, last_row, d_row):
+
+                    counts[counter] = darks[i, j, k, l]
+                    counter += 1
+
+            idx = np.where(counts != 0)[0]
+
+            psds[i, j, :] = LombScargle(times[idx] * 1e-6, counts[idx], normalization = 'psd').power(frequencies)
+
+    return frequencies, psds         
+
+def generate_detector_ts(beta, sigma_w, sigma_flicker, columns = 2048, rows = 512, pixel_time = 10, jump_time = 120, return_image = False, return_time = False):
+    """
+    This function simulates a JWST detector image and corresponding time-series of the pixel-reads, assuming the noise follows a $1/f^\beta$ power-law in its 
+    power spectrum. This assumes the 1/f pattern (and hence the detector reads) go along the columns of the detector.
+
+    Parameters
+    ----------
+    beta : float
+        Power-law index of the PSD of the noise. 
+    sigma_w : boolean
+        Square-root of the variance of the added Normal-distributed noise process.
+    sigma_flicker : float
+        Variance of the power-law process in the time-domain. 
+   columns : int
+        Number of columns of the detector.
+    rows : int
+        Number of rows of the detector.
+    pixel_time : float
+        Time it takes to read a pixel along each column in microseconds. Default is 10 microseconds (i.e., like JWST NIR detectors).
+    jump_time : float
+        Time it takes to jump from one column to the next once all its pixels have been read, in microseconds. Default is 120 microseconds (i.e., like JWST NIR detectors).
+    return_image : boolean
+        If True, returns an image with the simulated values. Default is False.
+    return_time : boolean 
+        If True, returns times as well. Default is False.
+
+    Returns
+    -------
+    times : `numpy.array`
+        The time-stamp of the flux values (i.e., at what time since read-out started were they read).
+    time_series : `numpy.array`
+        The actual flux values on each time-stamp (i.e., the pixel counts as they were read in time).
+    image : `numpy.array` 
+        The image corresponding to the `times` and `time_series`, if `return_image` is set to True.
+    """
+
+    # This is the number of "fake pixels" not read during the waiting time between jumps:
+    nfake = int(jump_time/pixel_time)
+
+    # First, generate a time series assuming uniform sampling (we will chop it later to accomodate the jump_time):
+    CN = ColoredNoise(beta = beta, t = (rows * columns * pixel_time) + columns * jump_time)
+
+    # Get the samples and time-indexes:
+    nsamples = rows * columns + (nfake * columns)
+    y = CN.sample(nsamples)
+    t = CN.times(nsamples)
+
+    # Now remove samples not actually read by the detector due to the wait times. Commented 
+    # loop below took 10 secs (!). New pythonic way is the same thing, takes millisecs, and 
+    # gets image for free:
+
+    if return_time:
+        t_image = t[:-1].reshape((columns, rows + nfake))
+        time_image = t_image[:, :rows]
+        times = time_image.flatten()
+
+    y_image = y[:-1].reshape((columns, rows + nfake))
+    image = y_image[:, :rows]
+    time_series = image.flatten()
+
+    # Set process standard-deviation to input sigma:
+    time_series = sigma_flicker * (time_series / np.sqrt(np.var(time_series)) )
+
+    # Add poisson noise:
+    time_series = time_series + np.random.normal(0., sigma_w, len(time_series))
+
+    if not return_image:
+        if not return_time:
+            return time_series
+        else:
+            return times, time_series
+
+    else:
+        if return_time:
+            # Return all:
+            return times, time_series, image.transpose()
+        else:
+            return time_series, image.transpose()

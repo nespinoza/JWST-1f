@@ -2,9 +2,7 @@ import numpy as np
 import time
 from scipy.stats import loguniform
 
-import dask
 import ray
-from dask.distributed import Client
 from astropy.timeseries import LombScargle
 from stochastic.processes.noise import ColoredNoise
 
@@ -104,30 +102,6 @@ class tso_prior:
         # Define the default number of samples:
         self.nsamples = nsamples
 
-@dask.delayed
-def sim_psd(data, times, frequencies):
-
-    # Get LS periodogram in seconds (times in microseconds):
-    psd = LombScargle(times * 1e-6, data, normalization = 'psd').power(frequencies)
-
-    return psd
-
-def get_sim_psds(beta, sigma_w, sigma_flicker, columns, rows, pixel_time, jump_time, times, frequencies, ngroups):
-
-    all_data = data_utils.get_sim_data(beta, sigma_w, sigma_flicker, columns, rows, pixel_time, jump_time, ngroups)
-
-    all_results = []
-
-    #tpsds = time.time()
-    for i in range(ngroups):
-
-        all_results.append(sim_psd(all_data[i], times, frequencies))
-
-    results = dask.delayed(all_results).compute(num_workers = 30)#, scheduler='processes')
-
-    #print('Generating PSDs took', time.time() - tpsds, 'seconds.')
-    return np.array(results)
-
 class tso_simulator:
     """
     This example class generates a simulator object that is able to simulate several or 
@@ -146,8 +120,7 @@ class tso_simulator:
         #print('Generating 88 sims...')
         #t0 = time.time()
 
-        all_psds = get_sim_psds(beta, sigma_w, sigma_flicker, self.ncolumns, self.nrows, self.pixel_time, \
-                                self.jump_time, self.times, self.frequencies, self.ngroups)
+        all_psds = self.single_simulation(beta, sigma_w, sigma_flicker)
 
         #print('Total: took ',time.time() - t0, 'secs.')
 
@@ -248,6 +221,3 @@ class tso_distance:
         if idx is not None:
 
             self.data_power = self.data_power[idx]
-
-if __name__ == '__main__':
-    client = dask.distributed.Client()

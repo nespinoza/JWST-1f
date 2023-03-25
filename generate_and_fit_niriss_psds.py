@@ -116,7 +116,7 @@ for k in list( datasets.keys() ):
         np.save(k+'_psds', all_psds)
 
         median_psd = np.median(all_psds, axis = 0)
-        np.save(k+'_median_'+str(all_psds.shape[0])+'_groups_psds', all_psds)
+        np.save(k+'_median_'+str(all_psds.shape[0])+'_groups_psds', median_psd)
 
     else:
 

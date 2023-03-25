@@ -39,81 +39,95 @@ for k in list( datasets.keys() ):
 
     # First, compute PSDs:
     print('\t Working on ',k, '...')
-    if not os.path.exists(k):
 
-        os.mkdir(k)
+    if not os.path.exists(k+'_psds.npy'):
 
-    files = glob.glob(datasets[k]+'*.fits')
+        if not os.path.exists(k):
 
-    first_time = True
-    for file in files:
+            os.mkdir(k)
 
-        uncal = datamodels.RampModel(file)
-        data = uncal.data
+        files = glob.glob(datasets[k]+'*.fits')
 
-        fname = file.split('/')[-1]
+        first_time = True
+        for file in files:
 
-        fout = k + '/' + fname.split('.fits')[0]
+            uncal = datamodels.RampModel(file)
+            data = uncal.data
 
-        if not os.path.exists(fout):
+            fname = file.split('/')[-1]
 
-            os.mkdir(fout)
+            fout = k + '/' + fname.split('.fits')[0]
 
-        if 'nircam' in k:
+            if not os.path.exists(fout):
 
-            corrected = utils.correct_darks(data, amplifier_location = amplifier_location)
+                os.mkdir(fout)
 
-        elif 'niriss-full' in k:
+            if 'nircam' in k:
 
-            # NIRISS subarray amplifiers go in the rows. The utils.correct_darks assume amplifiers go in the columns.
-            # We do a simple swap of axes to correct the darks, and then simply re-swap the result:
-            swapped_array = utils.correct_darks(np.swapaxes(data, 2, 3), amplifier_location = amplifier_location)
-            corrected = np.swapaxes(swapped_array, 2, 3)
+                corrected = utils.correct_darks(data, amplifier_location = amplifier_location)
 
-        else:
+            elif 'niriss-full' in k:
 
-            corrected = utils.correct_darks(data)
+                # NIRISS subarray amplifiers go in the rows. The utils.correct_darks assume amplifiers go in the columns.
+                # We do a simple swap of axes to correct the darks, and then simply re-swap the result:
+                swapped_array = utils.correct_darks(np.swapaxes(data, 2, 3), amplifier_location = amplifier_location)
+                corrected = np.swapaxes(swapped_array, 2, 3)
 
-        frequencies, psds, _ = utils.get_dark_psds( corrected, row_start = 255, column_start = 2047 )
+            else:
 
-        nintegrations, ngroups = psds.shape[0], psds.shape[1]
-        print('\t Filename: ', fname,': (nints, ngroups) = ',nintegrations, ngroups)
+                corrected = utils.correct_darks(data)
 
-        if first_time:
+            frequencies, psds, _ = utils.get_dark_psds( corrected, row_start = 255, column_start = 2047 )
 
-            all_psds = np.zeros([nintegrations * ngroups, len(frequencies)])
+            nintegrations, ngroups = psds.shape[0], psds.shape[1]
+            print('\t Filename: ', fname,': (nints, ngroups) = ',nintegrations, ngroups)
 
-            counter = 0
-            for i in range(nintegrations):
+            if first_time:
 
-                for j in range(ngroups):
+                all_psds = np.zeros([nintegrations * ngroups, len(frequencies)])
 
-                    all_psds[counter, :] = psds[i, j, :]
-                    counter += 1
+                counter = 0
+                for i in range(nintegrations):
 
-            first_time = False
+                    for j in range(ngroups):
 
-        else:
+                        all_psds[counter, :] = psds[i, j, :]
+                        counter += 1
 
-            new_all_psds = np.zeros([nintegrations * ngroups, len(frequencies)])
+                first_time = False
 
-            counter = 0 
-            for i in range(nintegrations):
+            else:
 
-                for k in range(ngroups):
+                new_all_psds = np.zeros([nintegrations * ngroups, len(frequencies)])
 
-                    new_all_psds[counter, :] = psds[i, k, :]
-                    counter += 1
+                counter = 0 
+                for i in range(nintegrations):
 
-            all_psds = np.vstack(( all_psds, new_all_psds ))
+                    for k in range(ngroups):
 
-    # Save results of PSD computations:
-    print('\t \t > Dataset has ',all_psds.shape[0], 'groups in total. Storing individual and combined PSDs...')
-    np.save(k+'_frequencies', frequencies)
-    np.save(k+'_psds', all_psds)
+                        new_all_psds[counter, :] = psds[i, k, :]
+                        counter += 1
 
-    median_psd = np.median(all_psds, axis = 0)
-    np.save(k+'_median_'+str(all_psds.shape[0])+'_groups_psds', all_psds)
+                all_psds = np.vstack(( all_psds, new_all_psds ))
+
+        # Save results of PSD computations:
+        print('\t \t > Dataset has ',all_psds.shape[0], 'groups in total. Storing individual and combined PSDs...')
+        np.save(k+'_frequencies', frequencies)
+        np.save(k+'_psds', all_psds)
+
+        median_psd = np.median(all_psds, axis = 0)
+        np.save(k+'_median_'+str(all_psds.shape[0])+'_groups_psds', all_psds)
+
+    else:
+
+        print('PSDs detected! Loading data...')
+
+        files = glob.glob(datasets[k]+'*.fits')
+        corrected = datamodels.RampModel(files[0]).data 
+
+        frequencies = np.load(k+'_frequencies.npy')
+        all_psds = np.load(k+'_psds.npy')
+        median_psd = np.load(k+'_median_'+str(all_psds.shape[0])+'_groups_psds.npy')
 
     # Now use results to perform ABC fit. Define prior, distance and simulator:
     prior = tso_prior()

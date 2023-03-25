@@ -74,9 +74,10 @@ for k in list( datasets.keys() ):
 
             corrected = utils.correct_darks(data)
 
-        frequencies, psds, _ = get_dark_psds( corrected_darks, row_start = 255, column_start = 2047 )
+        frequencies, psds, _ = utils.get_dark_psds( corrected, row_start = 255, column_start = 2047 )
 
         nintegrations, ngroups = psds.shape[0], psds.shape[1]
+        print('\t Filename: ', fname,': (nints, ngroups) = ',nintegrations, ngroups)
 
         if first_time:
 
@@ -85,9 +86,9 @@ for k in list( datasets.keys() ):
             counter = 0
             for i in range(nintegrations):
 
-                for k in range(ngroups):
+                for j in range(ngroups):
 
-                    all_psds[counter, :] = psds[i, k, :]
+                    all_psds[counter, :] = psds[i, j, :]
                     counter += 1
 
             first_time = False
@@ -120,8 +121,8 @@ for k in list( datasets.keys() ):
     distance = tso_distance(filename = k+'_median_'+str(all_psds.shape[0])+'_groups_psds.npy', \
                             filename_indexes = 'indexes.npy')
 
-    simulator = tso_simulator(ncolumns = corrected_darks.shape[3], \
-                              nrows = corrected_darks.shape[2], \
+    simulator = tso_simulator(ncolumns = corrected.shape[3], \
+                              nrows = corrected.shape[2], \
                               ngroups = all_psds.shape[0], \
                               frequency_filename = k+'_frequencies.npy')
 
@@ -137,9 +138,9 @@ for k in list( datasets.keys() ):
     # Print statistics:
     fout = open('results_'+k+'.txt','w')
     fout.write('Final parameters for '+k+'\n')
-    fout.write('beta: ',np.nanmedian(betas),'+/-',np.sqrt(np.var(betas))
-    fout.write('sigma_w: ',np.nanmedian(sigma_poissons),'+/-',np.sqrt(np.var(sigma_poissons))
-    fout.write('sigma_f: ',np.nanmedian(sigma_flickers),'+/-',np.sqrt(np.var(sigma_flickers))
+    fout.write('beta: ',np.nanmedian(betas),'+/-',np.sqrt(np.var(betas)))
+    fout.write('sigma_w: ',np.nanmedian(sigma_poissons),'+/-',np.sqrt(np.var(sigma_poissons)))
+    fout.write('sigma_f: ',np.nanmedian(sigma_flickers),'+/-',np.sqrt(np.var(sigma_flickers)))
     fout.close()
 
     # Plot corner plot:

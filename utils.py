@@ -228,7 +228,7 @@ def get_dark_psds(darks, row_start = 255, column_start = 2047, pixel_time = 10, 
 
             psds[i, j, :] = LombScargle(times[idx] * 1e-6, counts[idx], normalization = 'psd').power(frequencies)
 
-    return frequencies, psds         
+    return frequencies, psds, np.median(psds, axis = (0,1))
 
 def generate_detector_ts(beta, sigma_w, sigma_flicker, columns = 2048, rows = 512, pixel_time = 10, jump_time = 120, return_image = False, return_time = False):
     """

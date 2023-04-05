@@ -14,6 +14,8 @@ from psd_utils import tso_prior, tso_distance, tso_simulator
 
 import utils
 
+max_groups = 200
+
 # Set up the datasets and folders:
 datasets = {}
 
@@ -129,6 +131,21 @@ for k in list( datasets.keys() ):
         all_psds = np.load(k+'_psds.npy')
         median_psd = np.load(k+'_median_'+str(all_psds.shape[0])+'_groups_psds.npy')
 
+    if max_groups is not None:
+
+        if os.path.exists(k+'_median_'+str(max_groups)+'_groups_psds.npy'):
+
+            all_psds = all_psds[:max_groups, :]
+            median_psd = np.load(k+'_median_'+str(max_groups)+'_groups_psds.npy')
+
+        else:
+
+            all_psds = all_psds[:max_groups, :]
+            median_psd = np.median(all_psds, axis = 0)
+            np.save(k+'_median_'+str(max_groups)+'_groups_psds', median_psd)
+
+            
+
     # Now use results to perform ABC fit. Define prior, distance and simulator:
     prior = tso_prior()
 
@@ -152,9 +169,9 @@ for k in list( datasets.keys() ):
     # Print statistics:
     fout = open('results_'+k+'.txt','w')
     fout.write('Final parameters for '+k+'\n')
-    fout.write('beta: ',np.nanmedian(betas),'+/-',np.sqrt(np.var(betas)))
-    fout.write('sigma_w: ',np.nanmedian(sigma_poissons),'+/-',np.sqrt(np.var(sigma_poissons)))
-    fout.write('sigma_f: ',np.nanmedian(sigma_flickers),'+/-',np.sqrt(np.var(sigma_flickers)))
+    fout.write('beta: '+str(np.nanmedian(betas))+'+/-'+str(np.sqrt(np.var(betas)))+'\n')
+    fout.write('sigma_w: '+str(np.nanmedian(sigma_poissons))+'+/-'+str(np.sqrt(np.var(sigma_poissons)))+'\n')
+    fout.write('sigma_f: '+str(np.nanmedian(sigma_flickers))+'+/-'+str(np.sqrt(np.var(sigma_flickers)))+'\n')
     fout.close()
 
     # Plot corner plot:
@@ -163,4 +180,4 @@ for k in list( datasets.keys() ):
                            quantiles=[0.16, 0.5, 0.84],\
                            show_titles=True, title_kwargs={"fontsize": 12})
 
-    plt.savefig('corner_'+detector+'.pdf') 
+    plt.savefig('corner_'+k+'.pdf') 

@@ -230,6 +230,152 @@ def get_dark_psds(darks, row_start = 255, column_start = 2047, pixel_time = 10, 
 
     return frequencies, psds, np.median(psds, axis = (0,1))
 
+def generate_detector_ramps(beta, sigma_w, sigma_flicker, rates, nintegrations = 1, ngroups = 10, columns = 2048, rows = 256, frametime = 5.494, gain = 1.61, return_all = True):
+    """
+    This function generates `nintegrations` integrations of `ngroups` groups each given a seed "image" of `rates`, with 1/f and white-noise characteristics 
+    given by `beta`, `sigma_w` and `sigma_flicker`.
+
+    Parameters
+    ----------
+    beta : float
+        Power-law index of the PSD of the noise. 
+    sigma_w : boolean
+        Square-root of the variance of the added Normal-distributed noise process.
+    sigma_flicker : float
+        Variance of the power-law process in the time-domain. 
+    rates : np.array
+        Array containing the seed rates that define the up-the-ramp samples in counts per second.
+    nintegrations : int
+        Number of integrations to simulate
+    ngroups : int
+        Number of groups of the up-the-ramp samples
+    columns : int
+        Number of columns of the detector.
+    rows : int
+        Number of rows of the detector.
+    frametime : float
+        The frame time (group time really in this function) in seconds.
+    gain : float
+        The gain of the detector in electrons per ADU.
+    return_all : boolean
+        If True, returns the three components of the data: ramps + noise, ramps and noise. Memory intensive.
+
+    Returns
+    -------
+    ramps : np.array
+        Array of length [nintegrations, ngroups, rows, columns] containing the simulated ramps plus noise
+
+    ramps_only : np.array
+        Same as above but without noise
+    
+    noise : np. array
+        Same as above, but only the noise
+
+    """
+
+    # First, generate the 1/f + white-noise pattern for the nintegrations * ngroups frames:
+    ramps = np.zeros([nintegrations, ngroups, rows, columns])
+
+    if return_all:
+
+        noiseless_ramps = np.zeros([nintegrations, ngroups, rows, columns])
+        one_over_f = np.zeros([nintegrations, ngroups, rows, columns])
+
+    for i in range(nintegrations):
+
+        # Generate all the ramps:
+        ramps[i, :, :, :] = generate_poisson_ramp(rates, ngroups, frametime = frametime, gain = gain)
+
+        if return_all:
+
+            noiseless_ramps[i, :, :, :] = np.copy(ramps[i, :, :, :])
+
+        # Add 1/f noise to each group:
+        for j in range(ngroups):
+
+            _, onef = generate_detector_ts(beta, sigma_w, sigma_flicker, columns = columns, rows = rows, return_image = True)
+
+            if return_all:
+
+                one_over_f[i, j, :, :] = np.copy( onef )
+
+            ramps[i, j, :, :] += onef
+
+    # Return the ramps:
+    if not return_all:
+
+        return ramps
+
+    else:
+
+        return ramps, noiseless_ramps, one_over_f
+
+def generate_poisson_ramp(slope, ngroups, frametime = 1., bkg = 0., gain = 1.):
+    """ 
+    Ramp generator function | Author: Nestor Espinoza (nespinoza@stsci.edu)
+    -----------------------------------------------------------------------
+    
+    The main idea behind this ramp-generator function is that the number of counts at each up-the-ramp 
+    sample is not impacted directly by read-noise --- *reading* each up-the-ramp sample is what generates 
+    additional (white-gaussian in this case) noise. In strict terms, this is the same data-generating 
+    process as that of describing a cummulative Poisson Process with measurement errors at each time i:
+    
+    X(i) = T(i) + WN,
+    
+    with
+    
+    T(i) = T(i-1) + P(i),
+    
+    and where
+    
+    P(i) ~ Poisson(rate)
+    WN ~ Normal(0, sigma^2)
+    T(0) = 0
+    
+    This particular ramp-generator sets WN to zero (it is assumed this will be added in a post-processing step). 
+    Note also this ramp generator returns values in counts. However, all calculations of the Poisson process happen 
+    in electrons.
+    
+    Inputs
+    ------
+    
+    :param slope: np.array
+        Slope array of the ramp in ADU/s.
+        
+    :param ngroups: (int)
+        Number of groups in the ramp.
+            
+    :param frametime: (float)
+        Frame time in seconds.
+        
+    :param bkg: (optional, float)
+        Value of the *detector* background, if one wants T(0) distinct from zero. Set to zero by default.
+    
+    :param gain: (optinal, float)
+        Detector gain in electrons/ADU.
+    
+    """
+
+    ngroups = ngroups + 1
+
+    # Start the arrays that will hold the true number of counts (T) and the actual measured ramp (X):
+    T = np.zeros([ngroups, slope.shape[0], slope.shape[1]])
+    X = np.zeros([ngroups, slope.shape[0], slope.shape[1]])
+    X[0, :, :] = bkg
+    T[0, :, :] = bkg
+
+    # Now iterate through the process:
+    for i in range(1, ngroups):
+
+        P = np.random.poisson(slope * frametime * gain)
+
+        # Kick T and X:
+        T[i, :, :] = T[i-1, :, :] + P
+
+        X[i, :, :] = T[i, :, :]
+
+    return X[1:, :, :] / gain
+
 def generate_detector_ts(beta, sigma_w, sigma_flicker, columns = 2048, rows = 512, pixel_time = 10, jump_time = 120, return_image = False, return_time = False):
     """
     This function simulates a JWST detector image and corresponding time-series of the pixel-reads, assuming the noise follows a $1/f^\beta$ power-law in its 
@@ -295,6 +441,9 @@ def generate_detector_ts(beta, sigma_w, sigma_flicker, columns = 2048, rows = 51
 
     # Add poisson noise:
     time_series = time_series + np.random.normal(0., sigma_w, len(time_series))
+
+    # Reshape image:
+    image = time_series.reshape((columns, rows))
 
     if not return_image:
         if not return_time:
